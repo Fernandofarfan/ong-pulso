@@ -2,6 +2,7 @@ import type {
   Agreement,
   Client as FundingAgreementClient,
   Milestone,
+  Role,
   Status,
 } from "@/contracts/funding-agreement/src";
 
@@ -23,6 +24,11 @@ export class FundingAgreementService {
     return tx.result.unwrap();
   }
 
+  async hasRole(address: string, role: Role): Promise<boolean> {
+    const tx = await this.client.has_role({ address, role });
+    return tx.result.unwrap();
+  }
+
   async activate() {
     const tx = await this.client.activate();
     return tx.signAndSend();
@@ -35,6 +41,21 @@ export class FundingAgreementService {
 
   async resume() {
     const tx = await this.client.resume();
+    return tx.signAndSend();
+  }
+
+  async cancel() {
+    const tx = await this.client.cancel();
+    return tx.signAndSend();
+  }
+
+  async complete() {
+    const tx = await this.client.complete();
+    return tx.signAndSend();
+  }
+
+  async archive() {
+    const tx = await this.client.archive();
     return tx.signAndSend();
   }
 

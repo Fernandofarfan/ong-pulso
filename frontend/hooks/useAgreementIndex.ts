@@ -1,11 +1,13 @@
 "use client";
 
 import { AgreementIndexService } from "@/services/AgreementIndexService";
+import { logActivity } from "@/lib/activity";
 import type { CreateAgreementInput } from "@/types/agreement";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 const agreementIndexKey = ["agreement-index"] as const;
+const statusKey = ["app-status"] as const;
 
 export function useAgreementIndex() {
   const queryClient = useQueryClient();
@@ -15,8 +17,8 @@ export function useAgreementIndex() {
     queryKey: agreementIndexKey,
     queryFn: () => service.list(),
     retry: false,
-    staleTime: 0,
-    gcTime: 0,
+    staleTime: 5_000,
+    gcTime: 5 * 60_000,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchInterval: 10_000,
@@ -24,9 +26,26 @@ export function useAgreementIndex() {
 
   const deployAgreement = useMutation({
     mutationFn: (input: CreateAgreementInput) => service.deploy(input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: agreementIndexKey }),
+    onSuccess: (deployed) => {
+      logActivity({
+        type: "deploy",
+        title: `Agreement deployed: ${deployed.title}`,
+        detail: `${deployed.organization} · ${deployed.contractId.slice(0, 8)}…`,
+      });
+      queryClient.invalidateQueries({ queryKey: agreementIndexKey });
+    },
   });
 
   return { agreements, deployAgreement };
+}
+
+export function useAppStatus() {
+  const service = useMemo(() => new AgreementIndexService(), []);
+  return useQuery({
+    queryKey: statusKey,
+    queryFn: () => service.status(),
+    retry: false,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+  });
 }

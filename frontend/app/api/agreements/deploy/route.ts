@@ -1,6 +1,7 @@
-import { getDatabase } from "@/lib/mongodb";
+import { upsertAgreement } from "@/lib/agreementStore";
 import { readProjectEnv } from "@/lib/projectEnv";
-import type { CreateAgreementInput, IndexedAgreement } from "@/types/agreement";
+import { validateCreateAgreement } from "@/lib/validate";
+import type { IndexedAgreement } from "@/types/agreement";
 import { execFile } from "child_process";
 import path from "path";
 import { promisify } from "util";
@@ -10,135 +11,231 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const execFileAsync = promisify(execFile);
-const collectionName = "agreements";
+const CLI_TIMEOUT_MS = 180_000;
+const MAX_BUFFER = 20 * 1024 * 1024;
+
+function sanitizeMessage(message: string, secrets: string[]) {
+  let result = message;
+  for (const secret of secrets) {
+    if (secret && secret.length > 8) {
+      result = result.split(secret).join("***");
+    }
+  }
+  return result.slice(0, 800);
+}
+
+function runStellar(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  secrets: string[],
+) {
+  return execFileAsync("stellar", args, {
+    cwd,
+    env,
+    timeout: CLI_TIMEOUT_MS,
+    maxBuffer: MAX_BUFFER,
+    windowsHide: true,
+  }).catch((error: unknown) => {
+    const raw =
+      error instanceof Error ? error.message : "Stellar CLI command failed";
+    throw new Error(sanitizeMessage(raw, secrets));
+  });
+}
+
+async function authorizeDeploy(request: Request) {
+  let env: Record<string, string>;
+  try {
+    env = await readProjectEnv();
+  } catch {
+    return {
+      error: Response.json(
+        {
+          error:
+            "Root .env not found. Create it with SECRET_KEY, OWNER_ADDRESS and DEPLOY_API_TOKEN.",
+        },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const expected = env.DEPLOY_API_TOKEN;
+  if (!expected) {
+    return {
+      error: Response.json(
+        {
+          error:
+            "Deploy is disabled. Add DEPLOY_API_TOKEN to the root .env to enable contract deploys.",
+        },
+        { status: 403 },
+      ),
+    };
+  }
+
+  const token = request.headers.get("x-deploy-token");
+  if (token !== expected) {
+    return {
+      error: Response.json(
+        { error: "Missing or invalid deploy token. Set it in Settings." },
+        { status: 401 },
+      ),
+    };
+  }
+
+  return { env };
+}
 
 export async function POST(request: Request) {
-  const input = (await request.json()) as Partial<CreateAgreementInput>;
-  const projectRoot = path.resolve(process.cwd(), "..");
-  const env = await readProjectEnv();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = validateCreateAgreement(body);
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.error }, { status: 400 });
+  }
+
+  const auth = await authorizeDeploy(request);
+  if ("error" in auth) return auth.error;
+  const env = auth.env;
+
   const source = env.SECRET_KEY;
   const owner = env.OWNER_ADDRESS ?? env.PUBLIC_KEY;
-
   if (!source || !owner) {
     return Response.json(
-      { error: "SECRET_KEY and OWNER_ADDRESS are required in the root .env" },
+      {
+        error:
+          "SECRET_KEY and OWNER_ADDRESS are required in the root .env to deploy.",
+      },
       { status: 400 },
     );
   }
 
-  if (!input.title || !input.organization || !input.metadataUri) {
-    return Response.json(
-      { error: "title, organization and metadataUri are required" },
-      { status: 400 },
-    );
-  }
+  const input = parsed.value;
+  const projectRoot = path.resolve(process.cwd(), "..");
+  const secrets = [source];
+  const cliEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    CARGO_TARGET_DIR: "target",
+    STELLAR_SECRET_KEY: source,
+  };
 
   const participants = {
     funder: input.funder || owner,
     grantee: input.grantee || owner,
     arbiter: input.arbiter || owner,
   };
-  const milestones =
-    input.milestones?.length && input.milestones.length > 0
-      ? input.milestones
-      : [{ id: 0, amount: "100", metadataUri: "ipfs://milestone-0" }];
 
-  await execFileAsync("stellar", ["contract", "build"], {
-    cwd: projectRoot,
-    env: { ...process.env, CARGO_TARGET_DIR: "target" },
-  });
+  try {
+    await runStellar(["contract", "build"], projectRoot, cliEnv, secrets);
 
-  const wasmPath = path.join(
-    projectRoot,
-    "target",
-    "wasm32v1-none",
-    "release",
-    "funding_agreement.wasm",
-  );
-  const deploy = await execFileAsync(
-    "stellar",
-    [
-      "contract",
-      "deploy",
-      "--wasm",
-      wasmPath,
-      "--source",
-      source,
-      "--network",
-      "testnet",
-    ],
-    { cwd: projectRoot },
-  );
-  const contractId = deploy.stdout.match(/\bC[A-Z0-9]{55}\b/)?.[0];
-
-  if (!contractId) {
-    return Response.json(
-      { error: "Unable to recover deployed contract id" },
-      { status: 500 },
+    const wasmPath = path.join(
+      projectRoot,
+      "target",
+      "wasm32v1-none",
+      "release",
+      "funding_agreement.wasm",
     );
-  }
 
-  const config = {
-    version: 1,
-    settlement_adapter: owner,
-    allow_partial_completion: false,
-    requires_all_milestones: true,
-  };
+    const deploy = await runStellar(
+      [
+        "contract",
+        "deploy",
+        "--wasm",
+        wasmPath,
+        "--source",
+        source,
+        "--network",
+        "testnet",
+      ],
+      projectRoot,
+      cliEnv,
+      secrets,
+    );
 
-  await execFileAsync(
-    "stellar",
-    [
-      "contract",
-      "invoke",
-      "--id",
+    const contractId = deploy.stdout.match(/\bC[A-Z0-9]{55}\b/)?.[0];
+    if (!contractId) {
+      return Response.json(
+        { error: "Unable to recover the deployed contract id." },
+        { status: 500 },
+      );
+    }
+
+    const config = {
+      version: 1,
+      settlement_adapter: owner,
+      allow_partial_completion: false,
+      requires_all_milestones: true,
+    };
+
+    await runStellar(
+      [
+        "contract",
+        "invoke",
+        "--id",
+        contractId,
+        "--source",
+        source,
+        "--network",
+        "testnet",
+        "--send=yes",
+        "--",
+        "initialize",
+        "--factory",
+        owner,
+        "--funder",
+        participants.funder,
+        "--grantee",
+        participants.grantee,
+        "--arbiter",
+        participants.arbiter,
+        "--metadata_uri",
+        input.metadataUri,
+        "--config",
+        JSON.stringify(config),
+        "--milestones",
+        JSON.stringify(
+          input.milestones.map((milestone) => [
+            milestone.amount,
+            milestone.metadataUri,
+          ]),
+        ),
+      ],
+      projectRoot,
+      cliEnv,
+      secrets,
+    );
+
+    const agreement: IndexedAgreement = {
       contractId,
-      "--source",
-      source,
-      "--network",
-      "testnet",
-      "--send=yes",
-      "--",
-      "initialize",
-      "--factory",
-      owner,
-      "--funder",
-      participants.funder,
-      "--grantee",
-      participants.grantee,
-      "--arbiter",
-      participants.arbiter,
-      "--metadata_uri",
-      input.metadataUri,
-      "--config",
-      JSON.stringify(config),
-      "--milestones",
-      JSON.stringify(
-        milestones.map((milestone) => [
-          milestone.amount,
-          milestone.metadataUri,
-        ]),
-      ),
-    ],
-    { cwd: projectRoot },
-  );
+      title: input.title,
+      organization: input.organization,
+      metadataUri: input.metadataUri,
+      funder: participants.funder,
+      grantee: participants.grantee,
+      arbiter: participants.arbiter,
+      network: "testnet",
+      milestones: input.milestones,
+      createdAt: new Date().toISOString(),
+    };
 
-  const agreement: IndexedAgreement = {
-    contractId,
-    title: input.title,
-    organization: input.organization,
-    metadataUri: input.metadataUri,
-    funder: participants.funder,
-    grantee: participants.grantee,
-    arbiter: participants.arbiter,
-    network: "testnet",
-    milestones,
-    createdAt: new Date().toISOString(),
-  };
-
-  const db = await getDatabase();
-  await db
-    .collection<IndexedAgreement>(collectionName)
-    .updateOne({ contractId }, { $set: agreement }, { upsert: true });
-
-  return Response.json({ agreement });
+    await upsertAgreement(agreement);
+    return Response.json({ agreement });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to deploy agreement";
+    if (message.includes("ENOENT") || message.includes("not found")) {
+      return Response.json(
+        {
+          error:
+            "stellar CLI was not found. Install it and ensure it is on PATH.",
+        },
+        { status: 500 },
+      );
+    }
+    return Response.json({ error: message }, { status: 500 });
+  }
 }

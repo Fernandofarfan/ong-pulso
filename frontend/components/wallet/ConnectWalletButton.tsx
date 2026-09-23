@@ -3,10 +3,12 @@
 import { Button } from "@/components/ui/Button";
 import { useWallet } from "@/hooks/useWallet";
 import { shortAddress } from "@/utils/format";
+import { useState } from "react";
 
 export function ConnectWalletButton() {
   const { address, connect, disconnect, isConnecting, isConnected } =
     useWallet();
+  const [error, setError] = useState<string | null>(null);
 
   if (isConnected) {
     return (
@@ -22,8 +24,25 @@ export function ConnectWalletButton() {
   }
 
   return (
-    <Button onClick={connect} disabled={isConnecting}>
-      {isConnecting ? "Connecting..." : "Connect Wallet"}
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        disabled={isConnecting}
+        onClick={() => {
+          setError(null);
+          connect().catch((err: unknown) => {
+            setError(
+              err instanceof Error ? err.message : "Unable to connect wallet",
+            );
+          });
+        }}
+      >
+        {isConnecting ? "Connecting..." : "Connect Wallet"}
+      </Button>
+      {error ? (
+        <span className="max-w-[240px] text-right text-xs text-red-300">
+          {error}
+        </span>
+      ) : null}
+    </div>
   );
 }

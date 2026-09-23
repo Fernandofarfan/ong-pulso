@@ -1,57 +1,54 @@
-import { getDatabase } from "@/lib/mongodb";
-import type { CreateAgreementInput, IndexedAgreement } from "@/types/agreement";
+import { listAgreements, upsertAgreement } from "@/lib/agreementStore";
+import { hasMongoConfig } from "@/lib/mongodb";
+import { validateIndexedUpsert } from "@/lib/validate";
+import type { IndexedAgreement } from "@/types/agreement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const collectionName = "agreements";
-
 export async function GET() {
-  const db = await getDatabase();
-  const agreements = await db
-    .collection<IndexedAgreement>(collectionName)
-    .find({}, { projection: { _id: 0 } })
-    .sort({ createdAt: -1 })
-    .toArray();
-
-  return Response.json(
-    { agreements },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  try {
+    const agreements = await listAgreements();
+    return Response.json(
+      { agreements, storage: hasMongoConfig() ? "mongodb" : "file" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.includes("MONGODB_URI")
+        ? "MongoDB is not configured. Set MONGODB_URI in frontend/.env.local."
+        : "Unable to load the agreement index. Check your database connection.";
+    return Response.json({ error: message, agreements: [] }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {
-  const input = (await request.json()) as Partial<CreateAgreementInput>;
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
-  if (!input.contractId || !input.title || !input.organization) {
-    return Response.json(
-      { error: "contractId, title and organization are required" },
-      { status: 400 },
-    );
+  const parsed = validateIndexedUpsert(body);
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.error }, { status: 400 });
   }
 
   const agreement: IndexedAgreement = {
-    contractId: input.contractId,
-    title: input.title,
-    organization: input.organization,
-    metadataUri: input.metadataUri ?? "",
-    funder: input.funder ?? "",
-    grantee: input.grantee ?? "",
-    arbiter: input.arbiter ?? "",
-    network: input.network ?? "testnet",
-    milestones: input.milestones ?? [],
+    ...parsed.value,
     createdAt: new Date().toISOString(),
   };
 
-  const db = await getDatabase();
-  await db
-    .collection<IndexedAgreement>(collectionName)
-    .updateOne(
-      { contractId: agreement.contractId },
-      { $set: agreement },
-      { upsert: true },
-    );
-
-  return Response.json({ agreement });
+  try {
+    await upsertAgreement(agreement);
+    return Response.json({ agreement });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.includes("MONGODB_URI")
+        ? "MongoDB is not configured. Set MONGODB_URI in frontend/.env.local."
+        : "Unable to save the agreement.";
+    return Response.json({ error: message }, { status: 503 });
+  }
 }
