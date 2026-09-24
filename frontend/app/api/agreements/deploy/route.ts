@@ -10,6 +10,7 @@ import { promisify } from "util";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 300;
 
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 180_000;

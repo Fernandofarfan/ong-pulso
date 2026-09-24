@@ -14,8 +14,16 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 
-const CONFIRM_TIMEOUT_MS = 60_000;
+const CONFIRM_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 2_000;
+
+// Serialize deploys so concurrent requests don't race on the same account sequence.
+let deployChain: Promise<unknown> = Promise.resolve();
+function withDeployLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = deployChain.then(fn, fn);
+  deployChain = run.catch(() => undefined);
+  return run;
+}
 
 export type DeployParticipants = {
   funder: string;
@@ -116,12 +124,37 @@ async function signSendWait(
   return waitForTx(server, sent.hash);
 }
 
+function contractIdFromSalt(
+  ownerAddress: string,
+  salt: Buffer,
+  networkPassphrase: string,
+): string {
+  const preimage = xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+    new xdr.ContractIdPreimageFromAddress({
+      address: Address.fromString(ownerAddress).toScAddress(),
+      salt,
+    }),
+  );
+  const networkId = createHash("sha256")
+    .update(networkPassphrase)
+    .digest();
+  const digest = createHash("sha256")
+    .update(Buffer.concat([networkId, preimage.toXDR()]))
+    .digest();
+  return StrKey.encodeContract(digest);
+}
+
 function extractContractId(
   response: stellarRpc.Api.GetSuccessfulTransactionResponse,
 ): string | null {
   try {
-    const returnValue =
-      response.resultMetaXdr.v3()?.sorobanMeta()?.returnValue();
+    const meta = response.resultMetaXdr;
+    const v3 =
+      typeof (meta as { v3?: () => unknown }).v3 === "function"
+        ? (meta as { v3: () => unknown }).v3()
+        : null;
+    const sorobanMeta = (v3 as { sorobanMeta?: () => unknown } | null)?.sorobanMeta?.();
+    const returnValue = (sorobanMeta as { returnValue?: () => xdr.ScVal | null } | null)?.returnValue?.();
     if (returnValue?.switch() === xdr.ScValType.scvAddress()) {
       const scAddress = returnValue.address();
       if (scAddress.switch() === xdr.ScAddressType.scAddressTypeContract()) {
@@ -138,6 +171,12 @@ function extractContractId(
 export async function deployWithSdk(
   input: SdkDeployInput,
 ): Promise<{ contractId: string }> {
+  return withDeployLock(() => deployWithSdkUnlocked(input));
+}
+
+async function deployWithSdkUnlocked(
+  input: SdkDeployInput,
+): Promise<{ contractId: string }> {
   const secrets = [input.secretKey];
   const keypair = Keypair.fromSecret(input.secretKey);
   const server = new stellarRpc.Server(input.rpcUrl, {
@@ -147,6 +186,12 @@ export async function deployWithSdk(
   try {
     const wasm = await loadWasm();
     const wasmHash = createHash("sha256").update(wasm).digest();
+    const salt = randomBytes(32);
+    const expectedContractId = contractIdFromSalt(
+      input.ownerAddress,
+      salt,
+      input.networkPassphrase,
+    );
 
     // 1) Upload WASM
     await signSendWait(server, keypair, input.networkPassphrase, (source) =>
@@ -158,8 +203,7 @@ export async function deployWithSdk(
         .setTimeout(120),
     );
 
-    // 2) Create contract
-    const salt = randomBytes(32);
+    // 2) Create contract (salt already chosen → deterministic contract id)
     const createResult = await signSendWait(
       server,
       keypair,
@@ -179,10 +223,8 @@ export async function deployWithSdk(
           .setTimeout(120),
     );
 
-    const contractId = extractContractId(createResult);
-    if (!contractId) {
-      throw new Error("Unable to recover the deployed contract id.");
-    }
+    const contractId =
+      extractContractId(createResult) ?? expectedContractId;
 
     // 3) Initialize
     const contract = new Contract(contractId);
