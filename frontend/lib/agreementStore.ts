@@ -124,10 +124,10 @@ export async function listAgreements(): Promise<IndexedAgreement[]> {
     // First boot against an empty database: publish the verified testnet seed
     // so the dashboard is never blank. Upserts keep this idempotent.
     await Promise.all(
-      demoSeed.map((agreement) =>
+      demoSeed.map(({ createdAt, ...rest }) =>
         collection.updateOne(
-          { contractId: agreement.contractId },
-          { $set: agreement, $setOnInsert: { createdAt: agreement.createdAt } },
+          { contractId: rest.contractId },
+          { $set: rest, $setOnInsert: { createdAt } },
           { upsert: true },
         ),
       ),
