@@ -678,4 +678,229 @@ mod test {
         client.archive();
         assert_eq!(client.get_status(), Status::Archived);
     }
+
+    #[test]
+    fn rejects_double_initialization() {
+        let env = Env::default();
+        let (client, factory, funder, grantee, arbiter) = setup(&env);
+
+        let config = client.get_config();
+        let result = client.try_initialize(
+            &factory,
+            &funder,
+            &grantee,
+            &arbiter,
+            &String::from_str(&env, "ipfs://again"),
+            &config,
+            &vec![&env, (1_i128, String::from_str(&env, "ipfs://m"))],
+        );
+        assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
+    }
+
+    #[test]
+    fn rejects_non_positive_milestone_amounts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|ledger| {
+            ledger.timestamp = 1_700_000_000;
+        });
+
+        let contract_id = env.register(FundingAgreement, ());
+        let client = FundingAgreementClient::new(&env, &contract_id);
+        let config = AgreementConfig {
+            version: VERSION,
+            settlement_adapter: Address::generate(&env),
+            allow_partial_completion: false,
+            requires_all_milestones: true,
+        };
+
+        let result = client.try_initialize(
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &String::from_str(&env, "ipfs://a"),
+            &config,
+            &vec![&env, (0_i128, String::from_str(&env, "ipfs://m"))],
+        );
+        assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+    }
+
+    #[test]
+    fn rejects_empty_metadata_uri() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|ledger| {
+            ledger.timestamp = 1_700_000_000;
+        });
+
+        let contract_id = env.register(FundingAgreement, ());
+        let client = FundingAgreementClient::new(&env, &contract_id);
+        let config = AgreementConfig {
+            version: VERSION,
+            settlement_adapter: Address::generate(&env),
+            allow_partial_completion: false,
+            requires_all_milestones: true,
+        };
+
+        let result = client.try_initialize(
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &String::from_str(&env, ""),
+            &config,
+            &vec![&env, (1_i128, String::from_str(&env, "ipfs://m"))],
+        );
+        assert_eq!(result, Err(Ok(ContractError::InvalidMetadataUri)));
+    }
+
+    #[test]
+    fn pause_and_resume_cycle() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        assert_eq!(client.try_activate(), Ok(Ok(())));
+        assert_eq!(client.get_status(), Status::Active);
+
+        client.pause();
+        assert_eq!(client.get_status(), Status::Paused);
+
+        client.resume();
+        assert_eq!(client.get_status(), Status::Active);
+
+        let result = client.try_resume();
+        assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    }
+
+    #[test]
+    fn cancel_blocks_lifecycle_transitions() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.activate();
+        client.cancel();
+        assert_eq!(client.get_status(), Status::Cancelled);
+
+        assert_eq!(client.try_activate(), Err(Ok(ContractError::InvalidState)));
+        assert_eq!(client.try_pause(), Err(Ok(ContractError::InvalidState)));
+        assert_eq!(client.try_submit_milestone(&0), Err(Ok(ContractError::InvalidState)));
+    }
+
+    #[test]
+    fn complete_requires_all_milestones() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.activate();
+        client.submit_milestone(&0);
+        client.approve_milestone(&0);
+        client.complete_milestone(&0);
+
+        let result = client.try_complete();
+        assert_eq!(result, Err(Ok(ContractError::InvalidMilestoneState)));
+        assert_eq!(client.get_status(), Status::Active);
+    }
+
+    #[test]
+    fn reject_allows_no_illegal_transitions_after_rejection() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.activate();
+        client.submit_milestone(&1);
+        client.reject_milestone(&1);
+        assert_eq!(client.get_milestone(&1).status, MilestoneStatus::Rejected);
+
+        let submit = client.try_submit_milestone(&1);
+        assert_eq!(submit, Err(Ok(ContractError::InvalidMilestoneState)));
+
+        let approve = client.try_approve_milestone(&1);
+        assert_eq!(approve, Err(Ok(ContractError::InvalidMilestoneState)));
+
+        let complete = client.try_complete_milestone(&1);
+        assert_eq!(complete, Err(Ok(ContractError::InvalidMilestoneState)));
+
+        client.submit_milestone(&0);
+        client.approve_milestone(&0);
+        client.complete_milestone(&0);
+        assert_eq!(client.get_milestone(&0).status, MilestoneStatus::Completed);
+    }
+
+    #[test]
+    fn unknown_milestone_returns_not_found() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        let result = client.try_get_milestone(&99);
+        assert_eq!(result, Err(Ok(ContractError::MilestoneNotFound)));
+    }
+
+    #[test]
+    fn transfer_role_moves_authority() {
+        let env = Env::default();
+        let (client, _, _, _, arbiter) = setup(&env);
+        let new_arbiter = Address::generate(&env);
+
+        client.transfer_role(&Role::Arbiter, &new_arbiter);
+        assert!(client.has_role(&new_arbiter, &Role::Arbiter));
+        assert!(!client.has_role(&arbiter, &Role::Arbiter));
+
+        let result = client.try_transfer_role(&Role::Factory, &new_arbiter);
+        assert_eq!(result, Err(Ok(ContractError::InvalidRole)));
+    }
+
+    #[test]
+    fn can_execute_reflects_role_permissions() {
+        let env = Env::default();
+        let (client, factory, funder, grantee, arbiter) = setup(&env);
+
+        assert!(client.can_execute(&Action::Activate, &funder));
+        assert!(!client.can_execute(&Action::Activate, &grantee));
+        assert!(!client.can_execute(&Action::Activate, &arbiter));
+        assert!(!client.can_execute(&Action::Activate, &factory));
+
+        assert!(client.can_execute(&Action::SubmitMilestone, &grantee));
+        assert!(!client.can_execute(&Action::SubmitMilestone, &funder));
+
+        assert!(client.can_execute(&Action::ApproveMilestone, &arbiter));
+        assert!(!client.can_execute(&Action::ApproveMilestone, &grantee));
+
+        assert!(client.can_execute(&Action::UpdateMetadata, &funder));
+        assert!(client.can_execute(&Action::TransferRole, &funder));
+        assert!(client.can_execute(&Action::TransferRole, &grantee));
+        assert!(client.can_execute(&Action::TransferRole, &arbiter));
+        assert!(!client.can_execute(&Action::TransferRole, &factory));
+    }
+
+    #[test]
+    fn archive_requires_completed_state() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        let result = client.try_archive();
+        assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+
+        client.activate();
+        let result = client.try_archive();
+        assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+    }
+
+    #[test]
+    fn cancel_from_completed_state_is_rejected() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.activate();
+        for id in 0..2 {
+            client.submit_milestone(&id);
+            client.approve_milestone(&id);
+            client.complete_milestone(&id);
+        }
+        client.complete();
+
+        let result = client.try_cancel();
+        assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+        assert_eq!(client.get_status(), Status::Completed);
+    }
 }

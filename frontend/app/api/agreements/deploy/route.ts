@@ -1,4 +1,5 @@
 import { upsertAgreement } from "@/lib/agreementStore";
+import { deployWithSdk } from "@/lib/deployWithSdk";
 import { readProjectEnv } from "@/lib/projectEnv";
 import { validateCreateAgreement } from "@/lib/validate";
 import type { IndexedAgreement } from "@/types/agreement";
@@ -85,6 +86,100 @@ async function authorizeDeploy(request: Request) {
   return { env };
 }
 
+async function deployWithCli(input: {
+  secretKey: string;
+  ownerAddress: string;
+  participants: { funder: string; grantee: string; arbiter: string };
+  metadataUri: string;
+  milestones: { amount: string; metadataUri: string }[];
+}): Promise<{ contractId: string }> {
+  const projectRoot = path.resolve(process.cwd(), "..");
+  const secrets = [input.secretKey];
+  const cliEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    CARGO_TARGET_DIR: "target",
+    STELLAR_SECRET_KEY: input.secretKey,
+  };
+
+  await runStellar(["contract", "build"], projectRoot, cliEnv, secrets);
+
+  const wasmPath = path.join(
+    projectRoot,
+    "target",
+    "wasm32v1-none",
+    "release",
+    "funding_agreement.wasm",
+  );
+
+  const deploy = await runStellar(
+    [
+      "contract",
+      "deploy",
+      "--wasm",
+      wasmPath,
+      "--source",
+      input.secretKey,
+      "--network",
+      "testnet",
+    ],
+    projectRoot,
+    cliEnv,
+    secrets,
+  );
+
+  const contractId = deploy.stdout.match(/\bC[A-Z0-9]{55}\b/)?.[0];
+  if (!contractId) {
+    throw new Error("Unable to recover the deployed contract id.");
+  }
+
+  const config = {
+    version: 1,
+    settlement_adapter: input.ownerAddress,
+    allow_partial_completion: false,
+    requires_all_milestones: true,
+  };
+
+  await runStellar(
+    [
+      "contract",
+      "invoke",
+      "--id",
+      contractId,
+      "--source",
+      input.secretKey,
+      "--network",
+      "testnet",
+      "--send=yes",
+      "--",
+      "initialize",
+      "--factory",
+      input.ownerAddress,
+      "--funder",
+      input.participants.funder,
+      "--grantee",
+      input.participants.grantee,
+      "--arbiter",
+      input.participants.arbiter,
+      "--metadata_uri",
+      input.metadataUri,
+      "--config",
+      JSON.stringify(config),
+      "--milestones",
+      JSON.stringify(
+        input.milestones.map((milestone) => [
+          milestone.amount,
+          milestone.metadataUri,
+        ]),
+      ),
+    ],
+    projectRoot,
+    cliEnv,
+    secrets,
+  );
+
+  return { contractId };
+}
+
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -115,14 +210,6 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.value;
-  const projectRoot = path.resolve(process.cwd(), "..");
-  const secrets = [source];
-  const cliEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    CARGO_TARGET_DIR: "target",
-    STELLAR_SECRET_KEY: source,
-  };
-
   const participants = {
     funder: input.funder || owner,
     grantee: input.grantee || owner,
@@ -130,84 +217,37 @@ export async function POST(request: Request) {
   };
 
   try {
-    await runStellar(["contract", "build"], projectRoot, cliEnv, secrets);
-
-    const wasmPath = path.join(
-      projectRoot,
-      "target",
-      "wasm32v1-none",
-      "release",
-      "funding_agreement.wasm",
-    );
-
-    const deploy = await runStellar(
-      [
-        "contract",
-        "deploy",
-        "--wasm",
-        wasmPath,
-        "--source",
-        source,
-        "--network",
-        "testnet",
-      ],
-      projectRoot,
-      cliEnv,
-      secrets,
-    );
-
-    const contractId = deploy.stdout.match(/\bC[A-Z0-9]{55}\b/)?.[0];
-    if (!contractId) {
-      return Response.json(
-        { error: "Unable to recover the deployed contract id." },
-        { status: 500 },
-      );
+    // Prefer stellar-sdk (works on Vercel/serverless without the CLI).
+    // Fall back to the CLI when the SDK path fails and the CLI is available.
+    let contractId: string;
+    try {
+      const result = await deployWithSdk({
+        secretKey: source,
+        ownerAddress: owner,
+        rpcUrl: env.RPC_URL || "https://soroban-testnet.stellar.org",
+        networkPassphrase:
+          env.NETWORK_PASSPHRASE || "Test SDF Network ; September 2015",
+        participants,
+        metadataUri: input.metadataUri,
+        milestones: input.milestones,
+      });
+      contractId = result.contractId;
+    } catch (sdkError) {
+      const sdkMessage =
+        sdkError instanceof Error ? sdkError.message : "SDK deploy failed";
+      try {
+        const cliResult = await deployWithCli({
+          secretKey: source,
+          ownerAddress: owner,
+          participants,
+          metadataUri: input.metadataUri,
+          milestones: input.milestones,
+        });
+        contractId = cliResult.contractId;
+      } catch {
+        throw new Error(sdkMessage);
+      }
     }
-
-    const config = {
-      version: 1,
-      settlement_adapter: owner,
-      allow_partial_completion: false,
-      requires_all_milestones: true,
-    };
-
-    await runStellar(
-      [
-        "contract",
-        "invoke",
-        "--id",
-        contractId,
-        "--source",
-        source,
-        "--network",
-        "testnet",
-        "--send=yes",
-        "--",
-        "initialize",
-        "--factory",
-        owner,
-        "--funder",
-        participants.funder,
-        "--grantee",
-        participants.grantee,
-        "--arbiter",
-        participants.arbiter,
-        "--metadata_uri",
-        input.metadataUri,
-        "--config",
-        JSON.stringify(config),
-        "--milestones",
-        JSON.stringify(
-          input.milestones.map((milestone) => [
-            milestone.amount,
-            milestone.metadataUri,
-          ]),
-        ),
-      ],
-      projectRoot,
-      cliEnv,
-      secrets,
-    );
 
     const agreement: IndexedAgreement = {
       contractId,
@@ -231,7 +271,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error:
-            "stellar CLI was not found. Install it and ensure it is on PATH.",
+            "Contract WASM not found. Run `stellar contract build` or commit frontend/artifacts/funding_agreement.wasm.",
         },
         { status: 500 },
       );

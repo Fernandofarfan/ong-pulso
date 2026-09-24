@@ -2,6 +2,10 @@
 
 Institutional funding agreements on **Stellar Soroban**, with a Next.js dashboard, Freighter wallet integration, MongoDB agreement indexing, and real **XLM testnet** milestone donations.
 
+- **Active repo:** [`github.com/Fernandofarfan/ong-pulso`](https://github.com/Fernandofarfan/ong-pulso)
+- **Live demo:** https://ong-pulso-omega.vercel.app
+- The old `blastonyz/ong-pulso` repo is archived; this repo is the source of truth.
+
 This repository contains:
 
 - A **Soroban smart contract** (`funding-agreement`) for agreement lifecycle and milestones
@@ -166,6 +170,22 @@ MONGODB_DB=impact_protocol
 ```
 
 > The deploy API route reads this file to sign transactions with `SECRET_KEY` and default participant addresses.
+
+### MongoDB (Atlas)
+
+Without Mongo the app falls back to an in-memory file index seeded with demo agreements (fine for the demo). For real persistence:
+
+1. Create a free cluster at [MongoDB Atlas](https://www.mongodb.com/atlas)
+2. Create a DB user + allow network access (0.0.0.0/0 or your IP)
+3. Copy the connection string and set it in **both** places:
+   - `frontend/.env.local` → `MONGODB_URI=mongodb+srv://user:pass@cluster.../impact_protocol?retryWrites=true&w=majority`
+   - Vercel → Project Settings → Environment Variables → add `MONGODB_URI` (Production) → redeploy
+
+### Deploy API (on-chain from prod)
+
+The deploy route (`POST /api/agreements/deploy`) signs with `SECRET_KEY` and requires header `x-deploy-token: $DEPLOY_API_TOKEN`. In production these come from Vercel env vars; locally from the root `.env`. The route deploys via stellar-sdk (WASM pre-built at `frontend/artifacts/funding_agreement.wasm`), falling back to the Stellar CLI when available.
+
+`GET /api/status` reports `deployEnabled` / `deployConfigured` for quick checks.
 
 ### Frontend `.env.local`
 
