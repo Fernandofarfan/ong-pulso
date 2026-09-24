@@ -114,12 +114,25 @@ async function writeLocal(items: IndexedAgreement[]) {
 export async function listAgreements(): Promise<IndexedAgreement[]> {
   if (hasMongoConfig()) {
     const db = await getDatabase();
-    const agreements = await db
-      .collection<IndexedAgreement>(collectionName)
+    const collection = db.collection<IndexedAgreement>(collectionName);
+    const agreements = await collection
       .find({}, { projection: { _id: 0 } })
       .sort({ createdAt: -1 })
       .toArray();
-    return agreements as IndexedAgreement[];
+    if (agreements.length > 0) return agreements as IndexedAgreement[];
+
+    // First boot against an empty database: publish the verified testnet seed
+    // so the dashboard is never blank. Upserts keep this idempotent.
+    await Promise.all(
+      demoSeed.map((agreement) =>
+        collection.updateOne(
+          { contractId: agreement.contractId },
+          { $set: agreement, $setOnInsert: { createdAt: agreement.createdAt } },
+          { upsert: true },
+        ),
+      ),
+    );
+    return sortAgreements(demoSeed);
   }
 
   const items = await readLocal();
