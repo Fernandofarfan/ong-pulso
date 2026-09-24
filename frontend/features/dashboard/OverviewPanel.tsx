@@ -25,10 +25,13 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   EmptyState,
   Info,
-  NetworkBadge,
   StatCard,
 } from "./parts";
-import { FundingVolumeChart, MilestoneStatusChart } from "./charts";
+import {
+  AgreementStatusChart,
+  FundingVolumeChart,
+  MilestoneStatusChart,
+} from "./charts";
 import { totalAgreementAmount } from "./AgreementIndexPanel";
 import type { ActivityEntry } from "@/lib/activity";
 
@@ -181,6 +184,22 @@ export function OverviewPanel({
     );
   }, [indexedAgreements, search]);
 
+  // Progress per row: live values for the loaded contract, otherwise the
+  // last known on-chain milestone states kept in the local index.
+  const rowProgress = (item: IndexedAgreement): number | null => {
+    if (item.contractId === contractId) {
+      return milestoneCount > 0
+        ? Math.round((completedMilestones / milestoneCount) * 100)
+        : null;
+    }
+    const known = item.milestones.filter((milestone) => milestone.status);
+    if (known.length === 0 || item.milestones.length === 0) return null;
+    const done = known.filter(
+      (milestone) => milestone.status === "Completed",
+    ).length;
+    return Math.round((done / item.milestones.length) * 100);
+  };
+
   const donateToMilestone = (milestoneId: number, amount: string) => {
     if (!isConnected) {
       setDonationNotice("Connect Freighter before donating.");
@@ -257,13 +276,14 @@ export function OverviewPanel({
                     <th className="p-3 font-medium">Agreement</th>
                     <th className="p-3 font-medium">Organization</th>
                     <th className="p-3 font-medium">Status</th>
-                    <th className="p-3 font-medium">Milestones</th>
+                    <th className="p-3 font-medium">Progress</th>
                     <th className="p-3 text-right font-medium">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline/40 text-sm">
                   {tableRows.map((item) => {
                     const isActive = item.contractId === contractId;
+                    const pct = rowProgress(item);
                     return (
                       <tr
                         className="cursor-pointer transition hover:bg-surface-low/60"
@@ -287,14 +307,21 @@ export function OverviewPanel({
                           {isActive && currentStatus ? (
                             <StatusBadge status={currentStatus} />
                           ) : (
-                            <NetworkBadge network={item.network} />
+                            <StatusBadge status={item.status ?? "Draft"} />
                           )}
                         </td>
-                        <td className="p-3 text-muted">
-                          {item.milestones.length}
-                          {isActive && milestoneCount > 0
-                            ? ` · ${completedMilestones} done`
-                            : ""}
+                        <td className="p-3 w-44">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-high">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all"
+                                style={{ width: `${pct ?? 0}%` }}
+                              />
+                            </div>
+                            <span className="w-9 text-right font-mono text-xs text-muted">
+                              {pct === null ? "–" : `${pct}%`}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-3 text-right font-mono text-primary">
                           {formatAmount(totalAgreementAmount(item))} XLM
@@ -340,8 +367,9 @@ export function OverviewPanel({
         </Card>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
         <FundingVolumeChart agreements={indexedAgreements} />
+        <AgreementStatusChart agreements={indexedAgreements} />
         <MilestoneStatusChart milestones={milestoneList} />
       </section>
 

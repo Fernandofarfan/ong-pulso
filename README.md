@@ -101,7 +101,7 @@ flowchart LR
 
 - **Dashboard**: live agreement status, milestone progress, lifecycle actions
 - **Funding Agreements**: deploy + initialize + index new agreements from the UI
-- **Organizations / Disbursements**: placeholder sections for future modules
+- **Organizations**: derived rollup of the agreement index (per-organization totals)
 - **Freighter** connect and transaction signing
 - **XLM donations** to grantee with memo `milestone:<id>` on testnet
 - Auto-refresh of on-chain and indexed data (React Query + `no-store` API cache)
@@ -295,8 +295,8 @@ Open [http://localhost:3000](http://localhost:3000).
 |---------|-------------|
 | **Dashboard** | Active agreement, milestones, lifecycle buttons, XLM donations |
 | **Funding Agreements** | List indexed agreements, create new ones, sort by date/title/org |
-| **Organizations** | Mock registry (future module) |
-| **Disbursements** | Mock settlement queue (future module) |
+| **Organizations** | Rollup derived from the agreement index (funds, contracts, statuses) |
+| **Disbursements** | Milestone settlement queue sourced from the selected contract's on-chain state |
 
 ---
 

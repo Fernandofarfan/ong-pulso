@@ -1,8 +1,10 @@
 "use client";
 
 import { FundingAgreementService } from "@/services/FundingAgreementService";
+import { rememberOnChainState } from "@/services/AgreementIndexService";
 import { useSorobanContext } from "@/providers/SorobanProvider";
 import { useWallet } from "@/hooks/useWallet";
+import { enumTag } from "@/utils/format";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { Role } from "@/contracts/funding-agreement/src";
@@ -46,13 +48,34 @@ export function useAgreement() {
 
   const agreement = useQuery({
     queryKey: agreementKeys.agreement(contractId),
-    queryFn: () => service.getAgreement(),
+    queryFn: async () => {
+      const data = await service.getAgreement();
+      // Feed the freshest on-chain status back into the local index copy so
+      // stats/charts reflect the chain (the server index may have no DB).
+      rememberOnChainState(contractId, { status: enumTag(data.status) });
+      return data;
+    },
     ...liveQueryOptions,
   });
 
   const milestones = useQuery({
     queryKey: agreementKeys.milestones(contractId),
-    queryFn: () => service.getMilestones(),
+    queryFn: async () => {
+      const data = await service.getMilestones();
+      rememberOnChainState(contractId, {
+        milestones: data.map((milestone) => ({
+          id: milestone.id,
+          amount: String(milestone.amount),
+          metadataUri: milestone.metadata_uri,
+          status: enumTag(milestone.status),
+          completedAt:
+            milestone.completed_at != null
+              ? new Date(Number(milestone.completed_at) * 1000).toISOString()
+              : null,
+        })),
+      });
+      return data;
+    },
     ...liveQueryOptions,
   });
 

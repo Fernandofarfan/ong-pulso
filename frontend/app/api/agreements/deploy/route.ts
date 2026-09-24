@@ -259,6 +259,7 @@ export async function POST(request: Request) {
       grantee: participants.grantee,
       arbiter: participants.arbiter,
       network: "testnet",
+      status: "Draft",
       milestones: input.milestones,
       createdAt: new Date().toISOString(),
     };

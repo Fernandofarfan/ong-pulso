@@ -15,6 +15,8 @@ export type IndexedAgreement = {
   grantee: string;
   arbiter: string;
   network: string;
+  /** Last known on-chain status (Draft/Active/Paused/...). */
+  status?: string;
   milestones: IndexedMilestone[];
   createdAt: string;
 };

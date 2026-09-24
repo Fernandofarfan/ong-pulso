@@ -7,68 +7,63 @@ const collectionName = "agreements";
 const dataDir = path.join(process.cwd(), ".data");
 const localFile = path.join(dataDir, "agreements.json");
 
+const iso = (epochSeconds: number) =>
+  new Date(epochSeconds * 1000).toISOString();
+
+// Seed mirrors contracts that really exist on testnet (verified via get_agreement /
+// get_milestones). Never invent contract ids: clicking an entry loads it on-chain.
 const demoSeed: IndexedAgreement[] = [
   {
     contractId: "CCZBRUVFYUBH7DMWCQFL7LYO2V5UNVPSI2HAK7HCJA3IWCEE2QGFO5ZA",
     title: "Water Access Cohort",
     organization: "Pulso Foundation",
-    metadataUri: "ipfs://agreement-water-access",
-    funder: "",
-    grantee: "",
-    arbiter: "",
+    metadataUri: "ipfs://agreement",
+    funder: "GBT7NTJIOY6UCYDTNBW4K57EF5KYRS3QGHGDTWQB4LJJV367DVIOJVY7",
+    grantee: "GBT7NTJIOY6UCYDTNBW4K57EF5KYRS3QGHGDTWQB4LJJV367DVIOJVY7",
+    arbiter: "GBT7NTJIOY6UCYDTNBW4K57EF5KYRS3QGHGDTWQB4LJJV367DVIOJVY7",
     network: "testnet",
+    status: "Active",
     milestones: [
-      { id: 0, amount: "250", metadataUri: "ipfs://ms-water-0" },
-      { id: 1, amount: "400", metadataUri: "ipfs://ms-water-1" },
-      { id: 2, amount: "150", metadataUri: "ipfs://ms-water-2" },
+      {
+        id: 0,
+        amount: "100",
+        metadataUri: "ipfs://milestone-0",
+        status: "Completed",
+        completedAt: iso(1782844643),
+      },
+      { id: 1, amount: "250", metadataUri: "ipfs://milestone-1", status: "Submitted" },
     ],
-    createdAt: new Date().toISOString(),
+    createdAt: iso(1782840422),
   },
   {
-    contractId: "CDEMO1111111111111111111111111111111111111111111111111111",
+    contractId: "CDMNZ2N4SOTF2W7JSRKIBUVR3726BA7YQQU2TKWPD7VEBLMS2WPYYKWI",
+    title: "Solar Clinic Kits",
+    organization: "Aestrial NGO",
+    metadataUri: "ipfs://sdk-deploy-test",
+    funder: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
+    grantee: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
+    arbiter: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
+    network: "testnet",
+    status: "Draft",
+    milestones: [
+      { id: 0, amount: "50000000", metadataUri: "ipfs://sdk-ms-0", status: "Pending" },
+    ],
+    createdAt: iso(1790264797),
+  },
+  {
+    contractId: "CAVSYUGO3XOTUKMK2ZTV3CE2OPW55N24EDJX4XXZ5EBJUCGGGGN644SK",
     title: "School Meals Expansion",
     organization: "Aestrial NGO",
-    metadataUri: "ipfs://agreement-meals",
-    funder: "",
-    grantee: "",
-    arbiter: "",
+    metadataUri: "ipfs://sdk-deploy-test",
+    funder: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
+    grantee: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
+    arbiter: "GB5Z7JSILTNODJS444RVDIGMRBMFR4VDQP4HBDF4OL2IHQ725S2QEZRO",
     network: "testnet",
+    status: "Draft",
     milestones: [
-      { id: 0, amount: "120", metadataUri: "ipfs://ms-meals-0" },
-      { id: 1, amount: "300", metadataUri: "ipfs://ms-meals-1" },
+      { id: 0, amount: "50000000", metadataUri: "ipfs://sdk-ms-0", status: "Pending" },
     ],
-    createdAt: new Date(Date.now() - 86_400_000 * 4).toISOString(),
-  },
-  {
-    contractId: "CDEMO2222222222222222222222222222222222222222222222222222",
-    title: "Solar Clinic Kits",
-    organization: "Impact Lab",
-    metadataUri: "ipfs://agreement-solar",
-    funder: "",
-    grantee: "",
-    arbiter: "",
-    network: "testnet",
-    milestones: [
-      { id: 0, amount: "500", metadataUri: "ipfs://ms-solar-0" },
-      { id: 1, amount: "200", metadataUri: "ipfs://ms-solar-1" },
-      { id: 2, amount: "100", metadataUri: "ipfs://ms-solar-2" },
-    ],
-    createdAt: new Date(Date.now() - 86_400_000 * 12).toISOString(),
-  },
-  {
-    contractId: "CDEMO3333333333333333333333333333333333333333333333333333",
-    title: "Emergency Shelter Fund",
-    organization: "Pulso Foundation",
-    metadataUri: "ipfs://agreement-shelter",
-    funder: "",
-    grantee: "",
-    arbiter: "",
-    network: "testnet",
-    milestones: [
-      { id: 0, amount: "800", metadataUri: "ipfs://ms-shelter-0" },
-      { id: 1, amount: "350", metadataUri: "ipfs://ms-shelter-1" },
-    ],
-    createdAt: new Date(Date.now() - 86_400_000 * 25).toISOString(),
+    createdAt: iso(1790264847),
   },
 ];
 

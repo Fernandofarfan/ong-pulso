@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 5,
+    "address": 6,
     "nonce": 0,
     "mux_id": 0
   },
@@ -28,29 +28,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
+                  "string": "ipfs://agreement"
+                },
+                {
                   "map": [
                     {
                       "key": {
-                        "symbol": "description"
+                        "symbol": "allow_partial_completion"
                       },
                       "val": {
-                        "string": "Milestone-based funding agreement"
+                        "bool": false
                       }
                     },
                     {
                       "key": {
-                        "symbol": "title"
+                        "symbol": "requires_all_milestones"
                       },
                       "val": {
-                        "string": "Water project"
+                        "bool": true
                       }
                     },
                     {
                       "key": {
-                        "symbol": "uri"
+                        "symbol": "settlement_adapter"
                       },
                       "val": {
-                        "string": "ipfs://agreement"
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "version"
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     }
                   ]
@@ -63,7 +74,7 @@
                           "i128": "100"
                         },
                         {
-                          "string": "Design"
+                          "string": "ipfs://milestone-0"
                         }
                       ]
                     },
@@ -73,7 +84,7 @@
                           "i128": "250"
                         },
                         {
-                          "string": "Delivery"
+                          "string": "ipfs://milestone-1"
                         }
                       ]
                     }
@@ -86,20 +97,27 @@
         }
       ]
     ],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "activate",
+              "args": []
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
     "protocol_version": 25,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 1700000000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -133,6 +151,60 @@
                         "map": [
                           {
                             "key": {
+                              "symbol": "arbiter"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "completed_at"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "created_at"
+                            },
+                            "val": {
+                              "u64": "1700000000"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "factory"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "funder"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "grantee"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "metadata_uri"
+                            },
+                            "val": {
+                              "string": "ipfs://agreement"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "milestone_count"
                             },
                             "val": {
@@ -146,17 +218,17 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "Draft"
+                                  "symbol": "Active"
                                 }
                               ]
                             }
                           },
                           {
                             "key": {
-                              "symbol": "version"
+                              "symbol": "updated_at"
                             },
                             "val": {
-                              "u32": 1
+                              "u64": "1700000000"
                             }
                           }
                         ]
@@ -166,7 +238,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "Metadata"
+                            "symbol": "Config"
                           }
                         ]
                       },
@@ -174,26 +246,34 @@
                         "map": [
                           {
                             "key": {
-                              "symbol": "description"
+                              "symbol": "allow_partial_completion"
                             },
                             "val": {
-                              "string": "Milestone-based funding agreement"
+                              "bool": false
                             }
                           },
                           {
                             "key": {
-                              "symbol": "title"
+                              "symbol": "requires_all_milestones"
                             },
                             "val": {
-                              "string": "Water project"
+                              "bool": true
                             }
                           },
                           {
                             "key": {
-                              "symbol": "uri"
+                              "symbol": "settlement_adapter"
                             },
                             "val": {
-                              "string": "ipfs://agreement"
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "version"
+                            },
+                            "val": {
+                              "u32": 1
                             }
                           }
                         ]
@@ -222,6 +302,12 @@
                           },
                           {
                             "key": {
+                              "symbol": "completed_at"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
                               "symbol": "id"
                             },
                             "val": {
@@ -230,10 +316,10 @@
                           },
                           {
                             "key": {
-                              "symbol": "metadata"
+                              "symbol": "metadata_uri"
                             },
                             "val": {
-                              "string": "Design"
+                              "string": "ipfs://milestone-0"
                             }
                           },
                           {
@@ -274,6 +360,12 @@
                           },
                           {
                             "key": {
+                              "symbol": "completed_at"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
                               "symbol": "id"
                             },
                             "val": {
@@ -282,10 +374,10 @@
                           },
                           {
                             "key": {
-                              "symbol": "metadata"
+                              "symbol": "metadata_uri"
                             },
                             "val": {
-                              "string": "Delivery"
+                              "string": "ipfs://milestone-1"
                             }
                           },
                           {
@@ -298,51 +390,6 @@
                                   "symbol": "Pending"
                                 }
                               ]
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "Participants"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "symbol": "arbiter"
-                            },
-                            "val": {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "factory"
-                            },
-                            "val": {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "funder"
-                            },
-                            "val": {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "grantee"
-                            },
-                            "val": {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                             }
                           }
                         ]
@@ -367,6 +414,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "801925984706572462"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "5541220902715666415"
                 }
               },
               "durability": "temporary",

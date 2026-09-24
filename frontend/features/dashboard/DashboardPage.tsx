@@ -9,7 +9,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { getActivity, logActivity, type ActivityEntry } from "@/lib/activity";
 import type { CreateAgreementInput } from "@/types/agreement";
 import { exportCsv, exportJson } from "@/utils/export";
-import { parseContractErrorMessage } from "@/utils/format";
+import { parseContractErrorMessage, relativeTime } from "@/utils/format";
 import { AgreementIndexPanel, totalAgreementAmount } from "./AgreementIndexPanel";
 import { OverviewPanel } from "./OverviewPanel";
 import {
@@ -82,13 +82,14 @@ export function DashboardPage() {
   const { agreements: indexedAgreements, deployAgreement } = useAgreementIndex();
   const statusQuery = useAppStatus();
   const { donate } = useDonation();
-  const { isConnected } = useWallet();
+  const { isConnected, address, network } = useWallet();
 
   const [activeSection, setActiveSection] = useState<Section>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [donationNotice, setDonationNotice] = useState<string | null>(null);
   const [activityTick, setActivityTick] = useState(0);
+  const [bellOpen, setBellOpen] = useState(false);
 
   const refreshActivity = useCallback(() => {
     setActivityTick((value) => value + 1);
@@ -312,9 +313,76 @@ export function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                aria-label="Notifications"
+                className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-outline bg-surface-high text-lg text-foreground transition hover:border-primary/60 hover:text-primary"
+                onClick={() => setBellOpen((value) => !value)}
+                type="button"
+              >
+                ♢
+                {mergedActivity.length > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] font-bold text-on-primary">
+                    {mergedActivity.length > 9 ? "9+" : mergedActivity.length}
+                  </span>
+                ) : null}
+              </button>
+              {bellOpen ? (
+                <>
+                  <button
+                    aria-label="Close notifications"
+                    className="fixed inset-0 z-40 cursor-default"
+                    onClick={() => setBellOpen(false)}
+                    type="button"
+                  />
+                  <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-outline bg-surface p-3 shadow-2xl">
+                    <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-muted">
+                      Recent activity
+                    </p>
+                    {mergedActivity.length === 0 ? (
+                      <p className="py-3 text-sm text-muted">
+                        No activity yet.
+                      </p>
+                    ) : (
+                      <div className="max-h-72 space-y-3 overflow-y-auto">
+                        {mergedActivity.slice(0, 8).map((entry) => (
+                          <div key={entry.id} className="text-sm">
+                            <p className="font-medium text-foreground">
+                              {entry.title}
+                            </p>
+                            {entry.detail ? (
+                              <p className="text-xs text-muted">
+                                {entry.detail}
+                              </p>
+                            ) : null}
+                            <span className="font-mono text-xs text-muted">
+                              {relativeTime(entry.at)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
             <ConnectWalletButton />
+            <div
+              className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-outline bg-gradient-to-br from-primary/60 to-primary/10 font-mono text-xs font-bold text-foreground transition hover:border-primary"
+              title={address ? `Connected: ${address}` : "Not connected"}
+            >
+              {address ? address.slice(0, 2) : "GU"}
+            </div>
           </div>
         </header>
+
+        {network && !/testnet/i.test(network) ? (
+          <div className="border-b border-amber-400/40 bg-amber-400/10 px-4 py-2 text-center text-sm text-amber-200 md:px-6">
+            Freighter is on <span className="font-mono">{network}</span> — this
+            app runs on Stellar Testnet. Switch the network in Freighter to sign
+            transactions.
+          </div>
+        ) : null}
 
         <div className="border-b border-outline px-4 py-2 md:hidden">
           <input

@@ -117,6 +117,7 @@ pub enum ContractError {
     InvalidRole = 7,
     InvalidAmount = 8,
     InvalidMetadataUri = 9,
+    NoMilestones = 10,
 }
 
 #[contractevent(topics = ["initialized"])]
@@ -169,6 +170,9 @@ impl FundingAgreement {
         validate_metadata_uri(&metadata_uri)?;
 
         let milestone_count = milestones.len();
+        if milestone_count == 0 {
+            return Err(ContractError::NoMilestones);
+        }
         for id in 0..milestone_count {
             let (amount, metadata_uri) = milestones.get(id).unwrap();
             if amount <= 0 {
@@ -272,7 +276,10 @@ impl FundingAgreement {
     pub fn cancel(env: Env) -> Result<(), ContractError> {
         require_role(&env, Role::Funder)?;
         let mut agreement = read_agreement(&env)?;
-        if agreement.status == Status::Completed || agreement.status == Status::Archived {
+        if agreement.status == Status::Completed
+            || agreement.status == Status::Archived
+            || agreement.status == Status::Cancelled
+        {
             return Err(ContractError::InvalidState);
         }
 
@@ -368,6 +375,7 @@ impl FundingAgreement {
         validate_metadata_uri(&metadata_uri)?;
 
         let mut agreement = read_agreement(&env)?;
+        require_mutable(&agreement)?;
         agreement.metadata_uri = metadata_uri.clone();
         touch_agreement(&env, &mut agreement);
         write_agreement(&env, &agreement);
@@ -384,6 +392,7 @@ impl FundingAgreement {
         require_role(&env, role.clone())?;
 
         let mut agreement = read_agreement(&env)?;
+        require_mutable(&agreement)?;
         match role {
             Role::Funder => agreement.funder = new_address.clone(),
             Role::Grantee => agreement.grantee = new_address.clone(),
@@ -483,6 +492,15 @@ fn require_role(env: &Env, role: Role) -> Result<(), ContractError> {
 
 fn require_active(env: &Env) -> Result<(), ContractError> {
     if read_agreement(env)?.status != Status::Active {
+        return Err(ContractError::InvalidState);
+    }
+
+    Ok(())
+}
+
+/// Terminal states freeze metadata and role changes.
+fn require_mutable(agreement: &Agreement) -> Result<(), ContractError> {
+    if agreement.status == Status::Cancelled || agreement.status == Status::Archived {
         return Err(ContractError::InvalidState);
     }
 
@@ -784,7 +802,10 @@ mod test {
 
         assert_eq!(client.try_activate(), Err(Ok(ContractError::InvalidState)));
         assert_eq!(client.try_pause(), Err(Ok(ContractError::InvalidState)));
-        assert_eq!(client.try_submit_milestone(&0), Err(Ok(ContractError::InvalidState)));
+        assert_eq!(
+            client.try_submit_milestone(&0),
+            Err(Ok(ContractError::InvalidState))
+        );
     }
 
     #[test]
@@ -902,5 +923,95 @@ mod test {
         let result = client.try_cancel();
         assert_eq!(result, Err(Ok(ContractError::InvalidState)));
         assert_eq!(client.get_status(), Status::Completed);
+    }
+
+    #[test]
+    fn rejects_initialize_without_milestones() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|ledger| {
+            ledger.timestamp = 1_700_000_000;
+        });
+
+        let contract_id = env.register(FundingAgreement, ());
+        let client = FundingAgreementClient::new(&env, &contract_id);
+        let config = AgreementConfig {
+            version: VERSION,
+            settlement_adapter: Address::generate(&env),
+            allow_partial_completion: false,
+            requires_all_milestones: true,
+        };
+
+        let result = client.try_initialize(
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &Address::generate(&env),
+            &String::from_str(&env, "ipfs://a"),
+            &config,
+            &Vec::new(&env),
+        );
+        assert_eq!(result, Err(Ok(ContractError::NoMilestones)));
+    }
+
+    #[test]
+    fn reject_double_cancel() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.cancel();
+        assert_eq!(client.get_status(), Status::Cancelled);
+
+        let result = client.try_cancel();
+        assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+        assert_eq!(client.get_status(), Status::Cancelled);
+    }
+
+    #[test]
+    fn blocks_metadata_and_role_changes_after_cancel() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+
+        client.cancel();
+
+        let update = client.try_update_metadata(&String::from_str(&env, "ar://late"));
+        assert_eq!(update, Err(Ok(ContractError::InvalidState)));
+
+        let transfer = client.try_transfer_role(&Role::Arbiter, &Address::generate(&env));
+        assert_eq!(transfer, Err(Ok(ContractError::InvalidState)));
+        assert_eq!(
+            client.get_metadata(),
+            String::from_str(&env, "ipfs://agreement")
+        );
+    }
+
+    #[test]
+    fn exposes_participants() {
+        let env = Env::default();
+        let (client, factory, funder, grantee, arbiter) = setup(&env);
+
+        let participants = client.get_participants();
+        assert_eq!(participants.factory, factory);
+        assert_eq!(participants.funder, funder);
+        assert_eq!(participants.grantee, grantee);
+        assert_eq!(participants.arbiter, arbiter);
+    }
+
+    #[test]
+    fn rejects_invocation_without_role_authorization() {
+        let env = Env::default();
+        let (client, _, _, _, _) = setup(&env);
+        client.activate();
+
+        // Disable auth mocking: require_auth now needs real authorization
+        // entries and none are provided for this invocation.
+        env.set_auths(&[]);
+
+        let result = client.try_pause();
+        assert!(
+            result.is_err(),
+            "pause must fail without funder authorization, got {:?}",
+            result
+        );
     }
 }

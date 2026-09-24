@@ -10,6 +10,7 @@ import {
   createContext,
   type ReactNode,
   useContext,
+  useEffect,
   useState,
   useMemo,
 } from "react";
@@ -25,11 +26,58 @@ type SorobanContextValue = {
 
 const SorobanContext = createContext<SorobanContextValue | null>(null);
 
+const CONTRACT_ID_PATTERN = /^C[A-Z0-9]{55}$/;
+const ACTIVE_CONTRACT_KEY = "aestrial-active-contract";
+
+function validContractId(value: string | null | undefined): string | null {
+  return value && CONTRACT_ID_PATTERN.test(value) ? value : null;
+}
+
+function readPersistedContractId(): string | null {
+  if (typeof window === "undefined") return null;
+  // Deep link wins: ?contract=C...
+  const fromUrl = validContractId(
+    new URLSearchParams(window.location.search).get("contract"),
+  );
+  if (fromUrl) return fromUrl;
+  try {
+    return validContractId(
+      window.localStorage.getItem(ACTIVE_CONTRACT_KEY),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function SorobanProvider({ children }: { children: ReactNode }) {
   const { address, signTransaction } = useWalletContext();
   const [activeContractId, setActiveContractId] = useState(
     stellarConfig.fundingAgreementContractId,
   );
+
+  useEffect(() => {
+    // Restore after mount (SSR renders the default contract id): localStorage
+    // and ?contract= deep links survive reloads.
+    const persisted = readPersistedContractId();
+    if (persisted && persisted !== stellarConfig.fundingAgreementContractId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveContractId(persisted);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(ACTIVE_CONTRACT_KEY, activeContractId);
+    } catch {
+      // ignore storage failures
+    }
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("contract") !== activeContractId) {
+      url.searchParams.set("contract", activeContractId);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [activeContractId]);
 
   const value = useMemo(() => {
     const fundingAgreement = new FundingAgreementClient({

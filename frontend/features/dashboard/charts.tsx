@@ -7,7 +7,8 @@ import type { Milestone } from "@/contracts/funding-agreement/src";
 import type { IndexedAgreement } from "@/types/agreement";
 import { useMemo, useState } from "react";
 
-type FundingBucket = { label: string; value: number };
+type FundingBucket = { key: string; label: string; value: number };
+type Range = "6m" | "ytd" | "1y" | "all";
 
 function buildFundingBuckets(agreements: IndexedAgreement[]): FundingBucket[] {
   const byMonth = new Map<string, number>();
@@ -25,15 +26,33 @@ function buildFundingBuckets(agreements: IndexedAgreement[]): FundingBucket[] {
 
   return [...byMonth.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-6)
     .map(([key, value]) => {
       const [year, month] = key.split("-");
       const label = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString(
         "en",
         { month: "short" },
       );
-      return { label, value };
+      return { key, label, value };
     });
+}
+
+function filterRange(buckets: FundingBucket[], range: Range): FundingBucket[] {
+  if (range === "all") return buckets;
+  if (range === "ytd") {
+    const year = String(new Date().getFullYear());
+    return buckets.filter((bucket) => bucket.key.startsWith(year));
+  }
+  const now = new Date();
+  const monthsBack = range === "1y" ? 12 : 6;
+  const cutoff = new Date(
+    now.getFullYear(),
+    now.getMonth() - (monthsBack - 1),
+    1,
+  );
+  return buckets.filter((bucket) => {
+    const [year, month] = bucket.key.split("-").map(Number);
+    return new Date(year, month - 1, 1) >= cutoff;
+  });
 }
 
 export function FundingVolumeChart({
@@ -41,11 +60,11 @@ export function FundingVolumeChart({
 }: {
   agreements: IndexedAgreement[];
 }) {
-  const [range, setRange] = useState<"6m" | "all">("6m");
-  const buckets = useMemo(() => {
-    const all = buildFundingBuckets(agreements);
-    return range === "6m" ? all.slice(-6) : all;
-  }, [agreements, range]);
+  const [range, setRange] = useState<Range>("6m");
+  const buckets = useMemo(
+    () => filterRange(buildFundingBuckets(agreements), range),
+    [agreements, range],
+  );
 
   const max = Math.max(1, ...buckets.map((bucket) => bucket.value));
 
@@ -58,10 +77,12 @@ export function FundingVolumeChart({
         />
         <select
           className="mb-5 rounded-lg border border-outline bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-primary"
-          onChange={(event) => setRange(event.target.value as "6m" | "all")}
+          onChange={(event) => setRange(event.target.value as Range)}
           value={range}
         >
           <option value="6m">6M</option>
+          <option value="ytd">YTD</option>
+          <option value="1y">1Y</option>
           <option value="all">All</option>
         </select>
       </div>
@@ -197,6 +218,106 @@ export function MilestoneStatusChart({ milestones }: { milestones: Milestone[] }
                 </div>
               ),
             )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+const agreementStatusColors: Record<string, string> = {
+  Active: "#89ceff",
+  Completed: "#34d399",
+  Paused: "#ffb86e",
+  Draft: "#d2bbff",
+  Cancelled: "#f87171",
+  Archived: "#94a3b8",
+};
+
+const agreementStatusOrder = [
+  "Active",
+  "Completed",
+  "Paused",
+  "Draft",
+  "Cancelled",
+  "Archived",
+] as const;
+
+export function AgreementStatusChart({
+  agreements,
+}: {
+  agreements: IndexedAgreement[];
+}) {
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const agreement of agreements) {
+      const status = agreement.status ?? "Draft";
+      map.set(status, (map.get(status) ?? 0) + 1);
+    }
+    return map;
+  }, [agreements]);
+
+  const total = agreements.length;
+  const entries = agreementStatusOrder
+    .map((status) => [status, counts.get(status) ?? 0] as const)
+    .filter(([, count]) => count > 0);
+
+  // Prefix sums → conic-gradient stops without mutating render locals.
+  const cumulative = entries.reduce<number[]>(
+    (acc, [, count]) => [...acc, (acc[acc.length - 1] ?? 0) + count],
+    [],
+  );
+  const scale = 100 / Math.max(1, total);
+  const segments = entries.map(([status], index) => {
+    const start = (cumulative[index - 1] ?? 0) * scale;
+    const end = cumulative[index] * scale;
+    return `${agreementStatusColors[status]} ${start}% ${end}%`;
+  });
+  const gradient =
+    segments.length > 0
+      ? `conic-gradient(${segments.join(", ")})`
+      : "conic-gradient(#3e4850 0% 100%)";
+
+  return (
+    <Card>
+      <CardHeader
+        title="Status Distribution"
+        description="Indexed agreements by last known on-chain status."
+      />
+
+      {total === 0 ? (
+        <EmptyState
+          title="No agreements indexed"
+          description="Deploy an agreement to populate this chart."
+        />
+      ) : (
+        <div className="flex flex-1 flex-wrap items-center justify-center gap-8">
+          <div
+            className="relative flex h-40 w-40 shrink-0 items-center justify-center rounded-full"
+            style={{ background: gradient }}
+          >
+            <div className="relative z-10 flex h-28 w-28 flex-col items-center justify-center rounded-full bg-background">
+              <span className="text-2xl font-bold text-foreground">{total}</span>
+              <span className="font-mono text-xs text-muted">Total</span>
+            </div>
+          </div>
+
+          <div className="flex min-w-40 flex-col gap-3">
+            {entries.map(([status, count]) => (
+              <div
+                className="flex w-36 items-center justify-between gap-4 text-sm"
+                key={status}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded"
+                    style={{ background: agreementStatusColors[status] }}
+                  />
+                  <span className="text-foreground">{status}</span>
+                </div>
+                <span className="font-medium text-foreground">{count}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

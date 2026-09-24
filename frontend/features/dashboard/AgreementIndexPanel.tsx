@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState, Field, NetworkBadge, RowCard } from "./parts";
+import { useWallet } from "@/hooks/useWallet";
 import type { CreateAgreementInput, IndexedAgreement, IndexedMilestone } from "@/types/agreement";
 import { shortAddress } from "@/utils/format";
 import { type FormEvent, useMemo, useState } from "react";
@@ -31,6 +32,7 @@ export function AgreementIndexPanel({
   search: string;
 }) {
   const [sortBy, setSortBy] = useState<AgreementSort>("newest");
+  const { address: walletAddress } = useWallet();
   const [form, setForm] = useState<CreateAgreementInput>({
     contractId: "",
     title: "",
@@ -116,6 +118,12 @@ export function AgreementIndexPanel({
       ...form,
       title: form.title.trim(),
       organization: form.organization.trim(),
+      // Empty role fields fall back to the connected wallet so the deployed
+      // contract is actionable by the demo user (otherwise the deployer
+      // account owns every role).
+      funder: form.funder.trim() || walletAddress || "",
+      grantee: form.grantee.trim() || walletAddress || "",
+      arbiter: form.arbiter.trim() || walletAddress || "",
       milestones: form.milestones.map((milestone, index) => ({
         ...milestone,
         id: index,
@@ -251,15 +259,34 @@ export function AgreementIndexPanel({
               value={form.metadataUri}
             />
             <Field
-              label="Donation Receiver"
+              label="Funder"
+              onChange={(value) => updateField("funder", value)}
+              placeholder={
+                walletAddress ? `defaults to ${shortAddress(walletAddress)}` : "G... address (defaults to wallet)"
+              }
+              value={form.funder}
+            />
+            <Field
+              label="Arbiter"
+              onChange={(value) => updateField("arbiter", value)}
+              placeholder={
+                walletAddress ? `defaults to ${shortAddress(walletAddress)}` : "G... address (defaults to wallet)"
+              }
+              value={form.arbiter}
+            />
+            <Field
+              label="Donation Receiver (Grantee)"
               onChange={(value) => updateField("grantee", value)}
-              placeholder="Optional G... address"
+              placeholder={
+                walletAddress ? `defaults to ${shortAddress(walletAddress)}` : "G... address (defaults to wallet)"
+              }
               value={form.grantee}
             />
           </div>
           <p className="text-sm text-muted">
-            Funder, arbiter and factory default to OWNER_ADDRESS from the root
-            .env. The donation receiver becomes the on-chain grantee.
+            Leave a role empty to use your connected Freighter address — that
+            way you can activate, submit and approve your own agreement in the
+            demo. Factory defaults to OWNER_ADDRESS from the root .env.
           </p>
 
           <div className="rounded-2xl border border-outline bg-surface-low p-4">

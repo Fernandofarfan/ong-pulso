@@ -81,7 +81,8 @@ export const ContractError = {
   6: {message:"InvalidMilestoneState"},
   7: {message:"InvalidRole"},
   8: {message:"InvalidAmount"},
-  9: {message:"InvalidMetadataUri"}
+  9: {message:"InvalidMetadataUri"},
+  10: {message:"NoMilestones"}
 }
 
 
