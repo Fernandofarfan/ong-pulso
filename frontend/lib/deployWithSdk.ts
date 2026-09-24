@@ -124,42 +124,36 @@ async function signSendWait(
   return waitForTx(server, sent.hash);
 }
 
-function contractIdFromSalt(
-  ownerAddress: string,
-  salt: Buffer,
-  networkPassphrase: string,
-): string {
-  const preimage = xdr.ContractIdPreimage.contractIdPreimageFromAddress(
-    new xdr.ContractIdPreimageFromAddress({
-      address: Address.fromString(ownerAddress).toScAddress(),
-      salt,
-    }),
-  );
-  const networkId = createHash("sha256")
-    .update(networkPassphrase)
-    .digest();
-  const digest = createHash("sha256")
-    .update(Buffer.concat([networkId, preimage.toXDR()]))
-    .digest();
-  return StrKey.encodeContract(digest);
-}
-
 function extractContractId(
   response: stellarRpc.Api.GetSuccessfulTransactionResponse,
 ): string | null {
   try {
-    const meta = response.resultMetaXdr;
-    const v3 =
-      typeof (meta as { v3?: () => unknown }).v3 === "function"
-        ? (meta as { v3: () => unknown }).v3()
-        : null;
-    const sorobanMeta = (v3 as { sorobanMeta?: () => unknown } | null)?.sorobanMeta?.();
-    const returnValue = (sorobanMeta as { returnValue?: () => xdr.ScVal | null } | null)?.returnValue?.();
-    if (returnValue?.switch() === xdr.ScValType.scvAddress()) {
-      const scAddress = returnValue.address();
-      if (scAddress.switch() === xdr.ScAddressType.scAddressTypeContract()) {
+    const meta = response.resultMetaXdr as unknown as {
+      v0?: () => unknown;
+      v1?: () => unknown;
+      v2?: () => unknown;
+      v3?: () => unknown;
+      v4?: () => unknown;
+    };
+    for (const arm of ["v4", "v3", "v2", "v1", "v0"] as const) {
+      try {
+        const branch = meta[arm]?.() as
+          | {
+              sorobanMeta?: () => {
+                returnValue?: () => xdr.ScVal | null;
+              } | null;
+            }
+          | null
+          | undefined;
+        const returnValue = branch?.sorobanMeta?.()?.returnValue?.();
+        if (returnValue?.switch() !== xdr.ScValType.scvAddress()) continue;
+        const scAddress = returnValue.address();
+        if (scAddress.switch() !== xdr.ScAddressType.scAddressTypeContract())
+          continue;
         const raw = scAddress.contractId() as unknown as ArrayLike<number>;
         return StrKey.encodeContract(Buffer.from(raw));
+      } catch {
+        // try next arm
       }
     }
   } catch {
@@ -187,11 +181,6 @@ async function deployWithSdkUnlocked(
     const wasm = await loadWasm();
     const wasmHash = createHash("sha256").update(wasm).digest();
     const salt = randomBytes(32);
-    const expectedContractId = contractIdFromSalt(
-      input.ownerAddress,
-      salt,
-      input.networkPassphrase,
-    );
 
     // 1) Upload WASM
     await signSendWait(server, keypair, input.networkPassphrase, (source) =>
@@ -223,8 +212,11 @@ async function deployWithSdkUnlocked(
           .setTimeout(120),
     );
 
-    const contractId =
-      extractContractId(createResult) ?? expectedContractId;
+    const extracted = extractContractId(createResult);
+    if (!extracted) {
+      throw new Error("Unable to recover the deployed contract id.");
+    }
+    const contractId = extracted;
 
     // 3) Initialize
     const contract = new Contract(contractId);
