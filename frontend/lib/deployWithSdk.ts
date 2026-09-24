@@ -221,20 +221,34 @@ async function deployWithSdkUnlocked(
     // 3) Initialize
     const contract = new Contract(contractId);
 
-    // AgreementConfig as map (auto-detected)
-    const configVal = nativeToScVal({
-      version: 1,
-      settlement_adapter: input.ownerAddress,
-      allow_partial_completion: false,
-      requires_all_milestones: true,
-    });
+    // AgreementConfig as an explicit ScMap (struct field order + exact types)
+    const configVal = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal("version", { type: "symbol" }),
+        val: nativeToScVal(1, { type: "u32" }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal("settlement_adapter", { type: "symbol" }),
+        val: nativeToScVal(input.ownerAddress, { type: "address" }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal("allow_partial_completion", { type: "symbol" }),
+        val: nativeToScVal(false),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal("requires_all_milestones", { type: "symbol" }),
+        val: nativeToScVal(true),
+      }),
+    ]);
 
-    // Vec<(i128, String)> as vec of pairs (auto-detected)
-    const milestonesVal = nativeToScVal(
-      input.milestones.map((milestone) => [
-        BigInt(milestone.amount),
-        milestone.metadataUri,
-      ]),
+    // Vec<(i128, String)> as an explicit vec of vecs/scvVec pairs
+    const milestonesVal = xdr.ScVal.scvVec(
+      input.milestones.map((milestone) =>
+        xdr.ScVal.scvVec([
+          nativeToScVal(BigInt(milestone.amount), { type: "i128" }),
+          nativeToScVal(milestone.metadataUri, { type: "string" }),
+        ]),
+      ),
     );
 
     await signSendWait(server, keypair, input.networkPassphrase, (source) =>
