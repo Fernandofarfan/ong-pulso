@@ -15,6 +15,7 @@ export async function GET() {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    console.error("[agreements:GET]", error);
     const message =
       error instanceof Error && error.message.includes("MONGODB_URI")
         ? "MongoDB is not configured. Set MONGODB_URI in frontend/.env.local."
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
     await upsertAgreement(agreement);
     return Response.json({ agreement });
   } catch (error) {
+    console.error("[agreements:POST]", error);
     const message =
       error instanceof Error && error.message.includes("MONGODB_URI")
         ? "MongoDB is not configured. Set MONGODB_URI in frontend/.env.local."
