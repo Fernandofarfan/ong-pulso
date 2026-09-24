@@ -221,8 +221,8 @@ async function deployWithSdkUnlocked(
     // 3) Initialize
     const contract = new Contract(contractId);
 
-    // AgreementConfig as an explicit ScMap (struct field order + exact types)
-    const configVal = xdr.ScVal.scvMap([
+    // AgreementConfig as an explicit ScMap (must be sorted by key for the host)
+    const configEntries = [
       new xdr.ScMapEntry({
         key: nativeToScVal("version", { type: "symbol" }),
         val: nativeToScVal(1, { type: "u32" }),
@@ -239,7 +239,12 @@ async function deployWithSdkUnlocked(
         key: nativeToScVal("requires_all_milestones", { type: "symbol" }),
         val: nativeToScVal(true),
       }),
-    ]);
+    ].sort((a, b) => {
+      const ka = a.key().sym().toString();
+      const kb = b.key().sym().toString();
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    const configVal = xdr.ScVal.scvMap(configEntries);
 
     // Vec<(i128, String)> as an explicit vec of vecs/scvVec pairs
     const milestonesVal = xdr.ScVal.scvVec(
